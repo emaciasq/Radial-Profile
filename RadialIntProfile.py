@@ -16,10 +16,10 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
-                ring_width=0.0,phi_min=0.0,phi_max=2.*np.pi,im_rms=-1,\
+                ring_width=0.0,phi_min=0.0,phi_max=2.*np.pi,err_type='rms',im_rms=-1,\
                 doNorm=False,expNorm=1.5,doModel=False,outfile='',\
                 doPlot=True,color='blue',dist=''):
-    """
+    '''
     Input parameters:
     - imname: name of the image, in fits format.
     - theta_i, theta_pa: inclination and position angle of the source, in degrees.
@@ -32,8 +32,12 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     be set to one third of the beam size.
     - phi_min, phi_max (defaults are 0 and 2pi): Minimum and maximum azimuthal
     angles, in case particular angles want to be selected when averaging the emission.
-    - im_rms (default is -1): rms of the map. If not provided, it will be calculated
-    from the residual of the image after subtracting the averaged emission in each ring.
+    - err_type (default 'rms'): If set to 'rms', it will use the rms to estimate the
+    uncertainty of the profile. If set to 'std', it will use the standard
+    deviation inside each ring as the uncertainty in the profile.
+    - im_rms (default is -1): rms of the map. If not provided, it will
+    be calculated from the residual of the image after subtracting the averaged emission
+    in each ring.
     - doNorm (default is False), expNorm (default is 1.5): if doNorm = True,
     the profile will be normalized, also dividing the intensity by r**expNorm.
     - doModel (default is False): If True, a "model" image will be created with
@@ -44,7 +48,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     - color (default is blue): Color of the plot.
     - dist: distance to the source, in pc. It will only be necessary if a twin x axis
     with the distances in au is wanted.
-    """
+    '''
 # We open the image
     imObj = pyfits.open(im_name)
     Header = imObj[0].header
@@ -104,13 +108,15 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     IntAv=[]
     IntErr=[]
     # In case we want to create an image with the "model"
-    if doModel or (im_rms < 0):
+    if doModel or (im_rms == -1):
         Model = xarray
         Model[:,:] = np.nan
         ErrModel = Model
-    # We start averaging the emission
+
     if ring_width == 0.0:
         ring_width = np.sqrt(bmaj * bmin) / 3. # a third of the approximate beam size
+
+    # We start averaging the emission
     for r in radii:
         r0 = r - ring_width / 2.
         r1 = r + ring_width / 2.
@@ -120,30 +126,40 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
         Ring = Image[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max)]
         kAver = np.average(Ring) # Average within the ring
 
-        Abeam = np.pi * bmaj * bmin/(4.0 * np.log(2.0)) # Area of the beam
-        Aring = np.pi * np.cos(theta_i * np.pi/180.) * (r1**2 - r0**2) # Area of ring
-        nbeams=Aring/Abeam # Number of beams in the ring
-        if nbeams < 1.0:
-            nbeams=1.0 # The error can never be lower than one rms
-        kErr=1.0/np.sqrt(nbeams)
+        if err_type == 'std':
+            kErr = Ring.std()
+        elif err_type == 'rms':
+            Abeam = np.pi * bmaj * bmin/(4.0 * np.log(2.0)) # Area of the beam
+            Aring = np.pi * np.cos(theta_i * np.pi/180.) * (r1**2 - r0**2) # Area of ring
+            nbeams=Aring/Abeam # Number of beams in the ring
+            if nbeams < 1.0:
+                nbeams=1.0 # The error can never be lower than one rms
+            kErr=1.0/np.sqrt(nbeams)
+        else:
+            raise IOError('Wrong err_type: Type of uncertainty (err_type) can be rms or std.')
+
         # In case we want to create an image with the "model"
-        if doModel or (im_rms < 0):
+        if doModel or (im_rms == -1):
             Model[(rrot>=r0) & (rrot<r1)] = kAver
             ErrModel[(rrot>=r0) & (rrot<r1)] = kErr
 
         IntAv.append(kAver) # We save the averaged intensity in the ring
         IntErr.append(kErr) # We save the uncertainty in the ring
+    # End of loop in radii
 
     radii = np.array(radii)
     IntAv = np.array(IntAv)
     IntErr = np.array(IntErr)
 
     # If we didn't provide an rms, it will calculate it from the residuals
-    if im_rms < 0:
+    if im_rms == -1:
         Resid = Image - Model
         im_rms = np.sqrt(np.average(Resid[(rrot>rmin) & (rrot<rmax)]**2.0))
-    # We multiply the error by the rms, and write the model images if set so
-    IntErr = IntErr * im_rms
+    if err_type == 'rms':
+        # We multiply the error by the rms
+        IntErr = IntErr * im_rms
+
+    # We write the model images if set so
     if doModel:
         ErrModel = ErrModel * im_rms
         IntProfImObj = pyfits.writeto(imname[:-5] + '.Model.fits',Model,Header,clobber=True)
@@ -191,7 +207,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
 
         ax1.fill_between(radii,IntAv+IntErr,IntAv-IntErr,facecolor=color)
         ax1.plot(radii,IntAv,'k--')
-        ax1.set_ylim(bottom=-0.002)
+        #ax1.set_ylim(bottom=-0.002)
 
         if dist != '':
             twax1 = ax1.twiny()

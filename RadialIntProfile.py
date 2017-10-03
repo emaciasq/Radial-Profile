@@ -124,10 +124,10 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
             r0 = 0.0
 
         Ring = Image[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max)]
-        kAver = np.average(Ring) # Average within the ring
+        kAver = np.nanmean(Ring) # Average within the ring
 
         if err_type == 'std':
-            kErr = Ring.std()
+            kErr = np.nanstd(Ring)
         elif err_type == 'rms':
             Abeam = np.pi * bmaj * bmin/(4.0 * np.log(2.0)) # Area of the beam
             Aring = np.pi * np.cos(theta_i * np.pi/180.) * (r1**2 - r0**2) # Area of ring
@@ -154,7 +154,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     # If we didn't provide an rms, it will calculate it from the residuals
     if im_rms == -1:
         Resid = Image - Model
-        im_rms = np.sqrt(np.average(Resid[(rrot>rmin) & (rrot<rmax)]**2.0))
+        im_rms = np.sqrt(np.nanmean(Resid[(rrot>rmin) & (rrot<rmax)]**2.0))
     if err_type == 'rms':
         # We multiply the error by the rms
         IntErr = IntErr * im_rms

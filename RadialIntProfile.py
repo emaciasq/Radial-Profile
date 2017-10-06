@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
-                ring_width=0.0,phi_min=0.0,phi_max=2.*np.pi,err_type='rms',im_rms=-1,\
+                ring_width=0.0,phi_min=0.0,phi_max=2.*np.pi,err_type='rms_a',im_rms=-1,\
                 doNorm=False,expNorm=1.5,doModel=False,outfile='',\
                 doPlot=True,color='blue',dist=''):
     '''
@@ -32,9 +32,16 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     be set to one third of the beam size.
     - phi_min, phi_max (defaults are 0 and 2pi): Minimum and maximum azimuthal
     angles, in case particular angles want to be selected when averaging the emission.
-    - err_type (default 'rms'): If set to 'rms', it will use the rms to estimate the
-    uncertainty of the profile. If set to 'std', it will use the standard
-    deviation inside each ring as the uncertainty in the profile.
+    - err_type (default 'rms'): How the uncertainty of the profile is calculated:
+        - 'rms_a', it will use the rms of the image divided by the square root of the
+        area of the ring (in beams).
+        - 'rms_l', it will use the rms of the image divided by the square root of the
+        length of the ring (in beams).
+        - 'std', it will use the standard deviation inside each ring.
+        - 'std_a', it will use the standard deviation inside each ring divided by
+        the square root of the area of the ring (in beams).
+        - 'std_l', it will use the standard deviation inside each ring divided by
+        the square root of the length of the ring (in beams).
     - im_rms (default is -1): rms of the map. If not provided, it will
     be calculated from the residual of the image after subtracting the averaged emission
     in each ring.
@@ -126,17 +133,33 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
         Ring = Image[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max)]
         kAver = np.nanmean(Ring) # Average within the ring
 
-        if err_type == 'std':
-            kErr = np.nanstd(Ring)
-        elif err_type == 'rms':
+        if err_type == 'rms_a' or err_type == 'std_a':
             Abeam = np.pi * bmaj * bmin/(4.0 * np.log(2.0)) # Area of the beam
             Aring = np.pi * np.cos(theta_i * np.pi/180.) * (r1**2 - r0**2) # Area of ring
-            nbeams=Aring/Abeam # Number of beams in the ring
+            nbeams = Aring/Abeam # Number of beams in the ring
             if nbeams < 1.0:
-                nbeams=1.0 # The error can never be lower than one rms
-            kErr=1.0/np.sqrt(nbeams)
+                nbeams = 1.0 # The error cannot be higher than one rms or std
+            kErr = 1.0/np.sqrt(nbeams)
+            if err_type == 'std_a':
+                # If std_a, we multiply by the standard deviation inside the ring
+                kErr *= np.nanstd(Ring)
+        elif err_type == 'rms_l' or err_type == 'std_l':
+            Lbeam = np.sqrt(bmaj * bmin) # "length" of the beam
+            a = r
+            b = r * np.cos(theta_i)
+            Lring = np.pi * (3. * (a + b) - np.sqrt((3.*a + b) * (a + 3.*b))) # Length of elipse
+            # Keep in mind that this will be wrong for high inclinations and low nbeams
+            nbeams = Lring / Lbeam
+            if nbeams < 1.0:
+                nbeams = 1.0 # The error cannot be higher than one rms or std
+            kErr = 1.0/np.sqrt(nbeams)
+            if err_type == 'std_l':
+                # If std_l, we multiply by the standard deviation inside the ring
+                kErr *= np.nanstd(Ring)
+        elif err_type == 'std':
+            kErr = np.nanstd(Ring)
         else:
-            raise IOError('Wrong err_type: Type of uncertainty (err_type) can be rms or std.')
+            raise IOError('Wrong err_type: Type of uncertainty (err_type) is not recognised.')
 
         # In case we want to create an image with the "model"
         if doModel or (im_rms == -1):
@@ -155,7 +178,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     if im_rms == -1:
         Resid = Image - Model
         im_rms = np.sqrt(np.nanmean(Resid[(rrot>rmin) & (rrot<rmax)]**2.0))
-    if err_type == 'rms':
+    if err_type == 'rms_a' or err_type == 'rms_l':
         # We multiply the error by the rms
         IntErr = IntErr * im_rms
 

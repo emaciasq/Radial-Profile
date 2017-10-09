@@ -18,7 +18,8 @@ import matplotlib.ticker as ticker
 def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
                 ring_width=0.0,phi_min=0.0,phi_max=2.*np.pi,err_type='rms_a',im_rms=-1,\
                 doNorm=False,expNorm=1.5,doModel=False,outfile='',\
-                doPlot=True,color='blue',dist=''):
+                doPlot=True,color='blue',dist='',ylim=None,ylog=False,\
+                PSF=None,PB=None,pbcor_lim=0.5):
     '''
     Input parameters:
     - imname: name of the image, in fits format.
@@ -55,12 +56,26 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     - color (default is blue): Color of the plot.
     - dist: distance to the source, in pc. It will only be necessary if a twin x axis
     with the distances in au is wanted.
+    - ylim (default is None): limit of y axis. If not set, they will be selected automatically.
+    - ylog (default is False): Make log scale in y axis?
+    - PSF: image of the synthesized beam.
+    - PB: image of primary beam, in case it is needed.
+    - pbcor_lim: minimum primary beam correction value for which the intensity is going to be used.
+    NOTE: if this is used, ???_l err_types will not be fully correct.
     '''
 # We open the image
     imObj = pyfits.open(im_name)
     Header = imObj[0].header
     Image = imObj[0].data[0,0,:,:]
     imObj.close()
+    if PB != None:
+        PBObj = pyfits.open(PB)
+        imPB = PBObj[0].data[0,0,:,:]
+        PBObj.close()
+    if PSF != None:
+        PSFObj = pyfits.open(PSF)
+        imPSF = PSFObj[0].data[0,0,:,:]
+        PSFObj.close()
 
 # We retreat some information from the header
     try:
@@ -112,8 +127,10 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     radii = (np.array(range(int(nr) + 1)) / nr) * (rmax - rmin) + rmin + dr/2.
 
 # For each ring, we will calculate its average intensity and the uncertainty
-    IntAv=[]
-    IntErr=[]
+    IntAv = []
+    IntErr = []
+    if PSF != None:
+        IntPSF = []
     # In case we want to create an image with the "model"
     if doModel or (im_rms == -1):
         Model = xarray
@@ -130,7 +147,16 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
         if r0 < 0.0:
             r0 = 0.0
 
-        Ring = Image[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max)]
+        if PB == None:
+            Ring = Image[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max)]
+            if PSF != None:
+                PSF_ring = imPSF[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max)]
+                PSFAver = np.nanmean(PSF_ring)
+        else:
+            Ring = Image[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max) & (imPB>=pbcor_lim)]
+            if PSF != None:
+                PSF_ring = imPSF[(rrot>=r0) & (rrot<r1) & (phi>=phi_min) & (phi<=phi_max) & (imPB>=pbcor_lim)]
+                PSFAver = np.nanmean(PSF_ring)
         kAver = np.nanmean(Ring) # Average within the ring
 
         if err_type == 'rms_a' or err_type == 'std_a':
@@ -143,12 +169,15 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
             if err_type == 'std_a':
                 # If std_a, we multiply by the standard deviation inside the ring
                 kErr *= np.nanstd(Ring)
+                if (im_rms != -1) & (r < np.sqrt(bmaj * bmin)/2.):
+                    kErr = im_rms # If still inside the first beam, error should be the rms
+
         elif err_type == 'rms_l' or err_type == 'std_l':
             Lbeam = np.sqrt(bmaj * bmin) # "length" of the beam
             a = r
-            b = r * np.cos(theta_i)
+            b = r * np.cos(theta_i * np.pi/180.)
             Lring = np.pi * (3. * (a + b) - np.sqrt((3.*a + b) * (a + 3.*b))) # Length of elipse
-            # Keep in mind that this will be wrong for high inclinations and low nbeams
+            # NOTE: this will not be accurate for high inclinations and low nbeams
             nbeams = Lring / Lbeam
             if nbeams < 1.0:
                 nbeams = 1.0 # The error cannot be higher than one rms or std
@@ -156,8 +185,13 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
             if err_type == 'std_l':
                 # If std_l, we multiply by the standard deviation inside the ring
                 kErr *= np.nanstd(Ring)
+                if (im_rms != -1) & (r < np.sqrt(bmaj * bmin)/2.):
+                    kErr = im_rms # If still inside the first beam, error should be the rms
+
         elif err_type == 'std':
             kErr = np.nanstd(Ring)
+            if (im_rms != -1) & (r < np.sqrt(bmaj * bmin)/2.):
+                kErr = im_rms # If still inside the first beam, error should be the rms
         else:
             raise IOError('Wrong err_type: Type of uncertainty (err_type) is not recognised.')
 
@@ -168,11 +202,17 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
 
         IntAv.append(kAver) # We save the averaged intensity in the ring
         IntErr.append(kErr) # We save the uncertainty in the ring
+        if PSF != None:
+            IntPSF.append(PSFAver)
     # End of loop in radii
 
     radii = np.array(radii)
     IntAv = np.array(IntAv)
     IntErr = np.array(IntErr)
+    if PSF != None:
+        IntPSF = np.array(IntPSF)
+        IntPSF = IntPSF * max(IntAv) / max(IntPSF)
+        print(IntPSF)
 
     # If we didn't provide an rms, it will calculate it from the residuals
     if im_rms == -1:
@@ -219,6 +259,8 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
                 ytitle = 'Average Intensity (mJy/beam)'
                 IntAv = IntAv * 1000.0 #mJy/beam
                 IntErr = IntErr * 1000.0 #mJy/beam
+                if PSF != None:
+                    IntPSF *= 1000.0
             else:
                 ytitle = 'Average Intensity ('+IntUnit+')'
 
@@ -227,17 +269,32 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
         ax1.set_ylabel(ytitle,fontsize=15)
         ax1.set_xlabel('Radius (arcsec)',fontsize=15)
         ax1.set_xlim([0.0,rmax])
+        ax1.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+        ax1.tick_params(axis='both',direction='inout',which='both')
 
         ax1.fill_between(radii,IntAv+IntErr,IntAv-IntErr,facecolor=color)
-        ax1.plot(radii,IntAv,'k--')
-        #ax1.set_ylim(bottom=-0.002)
+        ax1.plot(radii,IntAv,'k-')
+        if PSF != None:
+            ax1.plot(radii,IntPSF,'k:')
+
+        plt.axhline(y=0.0, color='k', linestyle='--',lw=0.5)
+        if ylim != None:
+            ax1.set_ylim(ylim)
 
         if dist != '':
             twax1 = ax1.twiny()
             twax1.set_xlim([0.0,rmax*dist])
             twax1.xaxis.set_minor_locator(ticker.MultipleLocator(5))
-            twax1.xaxis.set_major_locator(ticker.MultipleLocator(20))
+            twax1.xaxis.set_major_locator(ticker.MultipleLocator(10))
             twax1.set_xlabel('Radius (au)',fontsize=15)
+            twax1.tick_params(direction='inout',which='both')
+
+        if ylog:
+            ax1.set_yscale('log')
+        twax2 = ax1.twinx()
+        twax2.set_ylim(ax1.get_ylim())
+        twax2.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+        twax2.tick_params(labelright='off',direction='in',which='both')
 
         plt.savefig(outfile + '.pdf',dpi = 650)
         plt.close(fig)

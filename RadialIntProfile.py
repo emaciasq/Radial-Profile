@@ -19,7 +19,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
                 ring_width=0.0,phi_min=0.0,phi_max=2.*np.pi,err_type='rms_a',im_rms=-1,\
                 doNorm=False,expNorm=1.5,doModel=False,outfile='',\
                 doPlot=True,color='blue',dist='',ylim=None,ylog=False,\
-                PSF=None,PB=None,pbcor_lim=0.5):
+                PSF=None,PB=None,pbcor_lim=0.5,verbose=False):
     '''
     Input parameters:
     - imname: name of the image, in fits format.
@@ -56,7 +56,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     - color (default is blue): Color of the plot.
     - dist: distance to the source, in pc. It will only be necessary if a twin x axis
     with the distances in au is wanted.
-    - ylim (default is None): limit of y axis. If not set, they will be selected automatically.
+    - ylim (default is None): limit of y axis, in units of the plot. If not set, they will be selected automatically.
     - ylog (default is False): Make log scale in y axis?
     - PSF: image of the synthesized beam.
     - PB: image of primary beam, in case it is needed.
@@ -212,7 +212,6 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     if PSF != None:
         IntPSF = np.array(IntPSF)
         IntPSF = IntPSF * max(IntAv) / max(IntPSF)
-        print(IntPSF)
 
     # If we didn't provide an rms, it will calculate it from the residuals
     if im_rms == -1:
@@ -240,13 +239,15 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
     if outfile == '':
         outfile = im_name[:-5]
     f = open(outfile + '.txt',"w")
-    print(' Radius    Av.Int.     Error       S/N    ')
-    print('  (")          ('+IntUnit+')')
+    if verbose:
+        print(' Radius    Av.Int.     Error       S/N    ')
+        print('  (")          ('+IntUnit+')')
     f.write(' Radius    Av.Int.     Error       S/N    \n')
     f.write('  (")          ('+IntUnit+') \n')
     for r,A,ErrA in zip(radii,IntAv,IntErr):
         f.write("%f %g %g %f \n" %(r,A,ErrA,A/ErrA))
-        print(r,A,ErrA,A/ErrA)
+        if verbose:
+            print(r,A,ErrA,A/ErrA)
     f.close()
 
 # We make a plot with the profile
@@ -269,7 +270,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
         ax1.set_ylabel(ytitle,fontsize=15)
         ax1.set_xlabel('Radius (arcsec)',fontsize=15)
         ax1.set_xlim([0.0,rmax])
-        ax1.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+        #ax1.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
         ax1.tick_params(axis='both',direction='inout',which='both')
 
         ax1.fill_between(radii,IntAv+IntErr,IntAv-IntErr,facecolor=color)
@@ -284,8 +285,8 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
         if dist != '':
             twax1 = ax1.twiny()
             twax1.set_xlim([0.0,rmax*dist])
-            twax1.xaxis.set_minor_locator(ticker.MultipleLocator(5))
-            twax1.xaxis.set_major_locator(ticker.MultipleLocator(10))
+            twax1.xaxis.set_minor_locator(ticker.MultipleLocator(10))
+            twax1.xaxis.set_major_locator(ticker.MultipleLocator(20))
             twax1.set_xlabel('Radius (au)',fontsize=15)
             twax1.tick_params(direction='inout',which='both')
 
@@ -293,7 +294,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
             ax1.set_yscale('log')
         twax2 = ax1.twinx()
         twax2.set_ylim(ax1.get_ylim())
-        twax2.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+        #twax2.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
         twax2.tick_params(labelright='off',direction='in',which='both')
 
         plt.savefig(outfile + '.pdf',dpi = 650)

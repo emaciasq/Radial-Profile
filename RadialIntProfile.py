@@ -66,7 +66,12 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
 # We open the image
     imObj = pyfits.open(im_name)
     Header = imObj[0].header
-    Image = imObj[0].data[0,0,:,:]
+    if len(imObj[0].data.shape) == 4:
+        Image = imObj[0].data[0,0,:,:]
+    elif len(imObj[0].data.shape) == 2:
+        Image = imObj[0].data[:,:]
+    else:
+        raise IOError('Incorrect shape of input image.')
     imObj.close()
     if PB != None:
         PBObj = pyfits.open(PB)
@@ -85,12 +90,22 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
             csize = abs(Header['cdelt1'])*180./np.pi*3600. # Cellsize (")
     except:
         # If cunit1 is not provided, we assume that cdelt is given in deg
-        print("cunit not provided in the header. Assuming cdelt is given in degrees.")
+        print("cunit not provided in the header. Assuming cdelt is given in degrees.\n")
         csize = abs(Header['cdelt1'])*3600. # Cellsize (")
-    IntUnit = Header['bunit'] # Brightness pixel units of image
 
-    bmaj = Header['bmaj']*3600. # Beam major axis (")
-    bmin = Header['bmin']*3600. # Beam minor axis (")
+    try:
+        IntUnit = Header['bunit'] # Brightness pixel units of image
+    except:
+        print("bunit not provided in header. Assuming Jy/pixel.\n")
+        IntUnit = 'Jy/pixel'
+
+    try:
+        bmaj = Header['bmaj']*3600. # Beam major axis (")
+        bmin = Header['bmin']*3600. # Beam minor axis (")
+    except:
+        print("WARNING: beam not provided in header. Using pixel size.\n")
+        bmaj = csize
+        bmin = csize
 
     nx = Header['naxis1'] # Number of pixels in the x axis
     ny = Header['naxis2'] # Number of pixels in the y axis
@@ -192,6 +207,7 @@ def rad_profile(im_name,theta_i,theta_pa,rmin,rmax,dr,cent=(1,1),\
             kErr = np.nanstd(Ring)
             if (im_rms != -1) & (r < np.sqrt(bmaj * bmin)/2.):
                 kErr = im_rms # If still inside the first beam, error should be the rms
+
         else:
             raise IOError('Wrong err_type: Type of uncertainty (err_type) is not recognised.')
 
